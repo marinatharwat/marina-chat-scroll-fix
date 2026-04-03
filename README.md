@@ -1,8 +1,7 @@
 # Chat Auto-Scroll Challenge — Solution
 
 ## Deployed URL
-https://YOUR-USERNAME.github.io/YOUR-REPO-NAME/
-
+https://marinatharwat.github.io/marina-chat-scroll-fix/
 ---
 
 ## UX Issues Identified & Fixed
