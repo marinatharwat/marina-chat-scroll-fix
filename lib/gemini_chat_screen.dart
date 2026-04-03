@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:cross_cache/cross_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +13,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import 'chat_auto_scroll_controller.dart';
 import 'gemini_stream_manager.dart';
 import 'in_memory_chat_controller.dart';
 
@@ -40,6 +40,7 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
   late final GenerativeModel _model;
   late ChatSession _chatSession;
   late final GeminiStreamManager _streamManager;
+  late final ChatAutoScrollController _autoScrollController; // NEW
 
   bool _isStreaming = false;
   StreamSubscription? _currentStreamSubscription;
@@ -52,6 +53,11 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
       chatController: _chatController,
       chunkAnimationDuration: _kChunkAnimationDuration,
     );
+
+    // Wire up auto-scroll controller AFTER creating _scrollController.
+    _autoScrollController = ChatAutoScrollController( // NEW
+      scrollController: _scrollController,           // NEW
+    );                                               // NEW
 
     _model = GenerativeModel(
       model: 'gemini-2.5-flash-lite',
@@ -67,6 +73,7 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
   @override
   void dispose() {
     _currentStreamSubscription?.cancel();
+    _autoScrollController.dispose(); // NEW
     _streamManager.dispose();
     _chatController.dispose();
     _scrollController.dispose();
@@ -74,10 +81,14 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     super.dispose();
   }
 
+  // ─── Stop stream ─────────────────────────────────────────────
+
   void _stopCurrentStream() {
     if (_currentStreamSubscription != null && _currentStreamId != null) {
       _currentStreamSubscription!.cancel();
       _currentStreamSubscription = null;
+
+      _autoScrollController.onStreamingEnded(); // NEW
 
       setState(() {
         _isStreaming = false;
@@ -91,16 +102,20 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     }
   }
 
+  // ─── Error handler ────────────────────────────────────────────
+
   void _handleStreamError(
-    String streamId,
-    dynamic error,
-    TextStreamMessage? streamMessage,
-  ) async {
+      String streamId,
+      dynamic error,
+      TextStreamMessage? streamMessage,
+      ) async {
     debugPrint('Generation error for $streamId: $error');
 
     if (streamMessage != null) {
       await _streamManager.errorStream(streamId, error);
     }
+
+    _autoScrollController.onStreamingEnded(); // NEW
 
     if (mounted) {
       setState(() {
@@ -110,6 +125,8 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     _currentStreamSubscription = null;
     _currentStreamId = null;
   }
+
+  // ─── Build ────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -128,46 +145,46 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
               );
             },
             imageMessageBuilder: (
-              context,
-              message,
-              index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) =>
+                context,
+                message,
+                index, {
+                  required bool isSentByMe,
+                  MessageGroupStatus? groupStatus,
+                }) =>
                 FlyerChatImageMessage(
-              message: message,
-              index: index,
-              showTime: false,
-              showStatus: false,
-            ),
+                  message: message,
+                  index: index,
+                  showTime: false,
+                  showStatus: false,
+                ),
             composerBuilder: (context) => _Composer(
               isStreaming: _isStreaming,
               onStop: _stopCurrentStream,
             ),
             textMessageBuilder: (
-              context,
-              message,
-              index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) =>
+                context,
+                message,
+                index, {
+                  required bool isSentByMe,
+                  MessageGroupStatus? groupStatus,
+                }) =>
                 FlyerChatTextMessage(
-              message: message,
-              index: index,
-              showTime: false,
-              showStatus: false,
-              receivedBackgroundColor: Colors.transparent,
-              padding: message.authorId == _agent.id
-                  ? EdgeInsets.zero
-                  : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            ),
+                  message: message,
+                  index: index,
+                  showTime: false,
+                  showStatus: false,
+                  receivedBackgroundColor: Colors.transparent,
+                  padding: message.authorId == _agent.id
+                      ? EdgeInsets.zero
+                      : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
             textStreamMessageBuilder: (
-              context,
-              message,
-              index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) {
+                context,
+                message,
+                index, {
+                  required bool isSentByMe,
+                  MessageGroupStatus? groupStatus,
+                }) {
               final streamState = context
                   .watch<GeminiStreamManager>()
                   .getState(message.streamId);
@@ -203,6 +220,8 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     );
   }
 
+  // ─── Message send ─────────────────────────────────────────────
+
   void _handleMessageSend(String text) async {
     await _chatController.insertMessage(
       TextMessage(
@@ -216,6 +235,8 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
 
     _sendContent(Content.text(text));
   }
+
+  // ─── Attachment ───────────────────────────────────────────────
 
   void _handleAttachmentTap() async {
     final picker = ImagePicker();
@@ -237,6 +258,8 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     _sendContent(Content.data('image/jpeg', bytes));
   }
 
+  // ─── Core streaming logic ─────────────────────────────────────
+
   void _sendContent(Content content) async {
     final streamId = _uuid.v4();
     _currentStreamId = streamId;
@@ -247,6 +270,8 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     setState(() {
       _isStreaming = true;
     });
+
+    _autoScrollController.onStreamingStarted(); // NEW
 
     Future<void> createAndInsertMessage() async {
       if (messageInserted || !mounted) return;
@@ -260,13 +285,15 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
       );
       await _chatController.insertMessage(streamMessage!);
       _streamManager.startStream(streamId, streamMessage!);
+
+      _autoScrollController.onContentChanged(); // NEW — scroll to new message
     }
 
     try {
       final response = _chatSession.sendMessageStream(content);
 
       _currentStreamSubscription = response.listen(
-        (chunk) async {
+            (chunk) async {
           if (chunk.text != null) {
             final textChunk = chunk.text!;
             if (textChunk.isEmpty) return;
@@ -278,12 +305,15 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
             if (streamMessage == null) return;
 
             _streamManager.addChunk(streamId, textChunk);
+            _autoScrollController.onContentChanged(); // NEW — scroll on chunk
           }
         },
         onDone: () async {
           if (streamMessage != null) {
             await _streamManager.completeStream(streamId);
           }
+
+          _autoScrollController.onStreamingEnded(); // NEW
 
           if (mounted) {
             setState(() {
@@ -302,6 +332,8 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
     }
   }
 }
+
+// ─── Composer widget ──────────────────────────────────────────────────────────
 
 class _Composer extends StatefulWidget {
   final bool isStreaming;
@@ -358,11 +390,11 @@ class _ComposerState extends State<_Composer> {
     final bottomSafeArea = MediaQuery.of(context).padding.bottom;
     final onAttachmentTap = context.read<OnAttachmentTapCallback?>();
     final theme = context.select(
-      (ChatTheme t) => (
-        bodyMedium: t.typography.bodyMedium,
-        onSurface: t.colors.onSurface,
-        surfaceContainerHigh: t.colors.surfaceContainerHigh,
-        surfaceContainerLow: t.colors.surfaceContainerLow,
+          (ChatTheme t) => (
+      bodyMedium: t.typography.bodyMedium,
+      onSurface: t.colors.onSurface,
+      surfaceContainerHigh: t.colors.surfaceContainerHigh,
+      surfaceContainerLow: t.colors.surfaceContainerLow,
       ),
     );
 
@@ -401,7 +433,7 @@ class _ComposerState extends State<_Composer> {
                           border: const OutlineInputBorder(
                             borderSide: BorderSide.none,
                             borderRadius:
-                                BorderRadius.all(Radius.circular(24)),
+                            BorderRadius.all(Radius.circular(24)),
                           ),
                           filled: true,
                           fillColor: theme.surfaceContainerHigh

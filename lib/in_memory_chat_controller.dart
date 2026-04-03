@@ -17,15 +17,15 @@ class InMemoryChatController
 
   @override
   Future<void> insertMessage(
-    Message message, {
-    int? index,
-    bool animated = true,
-  }) async {
+      Message message, {
+        int? index,
+        bool animated = true,
+      }) async {
     if (_messages.any((m) => m.id == message.id)) return;
 
     _messages.add(message);
     _messages.sort(
-      (a, b) => (a.createdAt?.millisecondsSinceEpoch ?? 0)
+          (a, b) => (a.createdAt?.millisecondsSinceEpoch ?? 0)
           .compareTo(b.createdAt?.millisecondsSinceEpoch ?? 0),
     );
     final insertIndex = _messages.indexOf(message);
@@ -60,9 +60,9 @@ class InMemoryChatController
 
   @override
   Future<void> setMessages(
-    List<Message> messages, {
-    bool animated = true,
-  }) async {
+      List<Message> messages, {
+        bool animated = true,
+      }) async {
     _messages.clear();
     _messages.addAll(messages);
     _operationsController.add(ChatOperation.set(messages, animated: animated));
@@ -70,15 +70,15 @@ class InMemoryChatController
 
   @override
   Future<void> insertAllMessages(
-    List<Message> messages, {
-    int? index,
-    bool animated = true,
-  }) async {
+      List<Message> messages, {
+        int? index,
+        bool animated = true,
+      }) async {
     if (messages.isEmpty) return;
     final originalLength = _messages.length;
     _messages.addAll(messages);
     _messages.sort(
-      (a, b) => (a.createdAt?.millisecondsSinceEpoch ?? 0)
+          (a, b) => (a.createdAt?.millisecondsSinceEpoch ?? 0)
           .compareTo(b.createdAt?.millisecondsSinceEpoch ?? 0),
     );
     _operationsController.add(
